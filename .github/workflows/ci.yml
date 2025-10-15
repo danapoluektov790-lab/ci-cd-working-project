@@ -1,0 +1,192 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  create-project:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create project structure
+      run: |
+        mkdir -p src tests
+        
+        cat > src/calculator.py << 'EOF'
+class Calculator:
+    def add(self, a, b):
+        return a + b
+
+    def subtract(self, a, b):
+        return a - b
+
+    def multiply(self, a, b):
+        return a * b
+
+    def divide(self, a, b):
+        if b == 0:
+            raise ValueError("Cannot divide by zero")
+        return a / b
+
+    def power(self, a, b):
+        return a ** b
+EOF
+
+        cat > tests/test_calculator.py << 'EOF'
+import pytest
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from src.calculator import Calculator
+
+class TestCalculator:
+    def setup_method(self):
+        self.calc = Calculator()
+
+    def test_add(self):
+        assert self.calc.add(2, 3) == 5
+        assert self.calc.add(-1, 1) == 0
+
+    def test_subtract(self):
+        assert self.calc.subtract(5, 3) == 2
+        assert self.calc.subtract(0, 5) == -5
+
+    def test_multiply(self):
+        assert self.calc.multiply(3, 4) == 12
+        assert self.calc.multiply(0, 5) == 0
+
+    def test_divide(self):
+        assert self.calc.divide(6, 3) == 2
+        assert self.calc.divide(5, 2) == 2.5
+
+    def test_divide_by_zero(self):
+        with pytest.raises(ValueError):
+            self.calc.divide(5, 0)
+
+    def test_power(self):
+        assert self.calc.power(2, 3) == 8
+        assert self.calc.power(5, 0) == 1
+EOF
+
+        echo "pytest==7.0.0" > requirements.txt
+        echo "pytest-cov==3.0.0" >> requirements.txt
+        
+        cat > README.md << 'EOF'
+# CI/CD Project
+
+![CI Status](https://github.com/${{ github.repository }}/actions/workflows/ci.yml/badge.svg)
+
+CI/CD pipeline with automated testing.
+EOF
+
+  test:
+    runs-on: ubuntu-latest
+    needs: create-project
+    
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Run tests
+      run: |
+        pytest tests/ -v
+
+    - name: Run coverage
+      run: |
+        pytest tests/ --cov=src --cov-report=xml
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    - name: Install flake8
+      run: |
+        pip install flake8
+
+    - name: Run linting
+      run: |
+        flake8 src/ tests/ --max-line-length=100
+
+  security:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    - name: Install bandit
+      run: |
+        pip install bandit
+
+    - name: Run security scan
+      run: |
+        bandit -r src/ -f html -o security-report.html
+
+    - name: Upload report
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-report
+        path: security-report.html
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test, lint, security]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy
+      run: |
+        echo "Deployment completed"
+
+  status:
+    runs-on: ubuntu-latest
+    needs: [test, lint, security]
+    if: always()
+
+    steps:
+    - name: Show status
+      run: |
+        echo "Pipeline finished"
